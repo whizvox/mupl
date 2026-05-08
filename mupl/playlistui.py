@@ -1,60 +1,24 @@
 import json
-import shutil
-from math import ceil
-from uuid import uuid4
 from glob import glob
+from math import ceil
 from pathlib import Path
+from uuid import uuid4
 
 import readchar
 import rich.markup
 import tinytag
 from readchar import readkey
+from rich.control import Control
 from rich.progress import track
+from rich.prompt import Prompt
 from rpaudio.rpaudio import AudioSink
 from tinytag import TinyTag
 
 from mupl.console import console
 from mupl.logger import logger
+from mupl.menu import KeyControls, KeyControl
 from mupl.playlist import Playlist, load_playlist_from_dict, ActivePlaylist
-from mupl.util import get_name_and_extension, find_all_files, truncate, format_duration
-
-
-class KeyControl:
-    def __init__(self, key, description):
-        self.key = key
-        self.description = description
-
-    def get_formatted(self):
-        return f"[green bold]\\[{self.key}][/green bold] {self.description}"
-
-
-class KeyControls:
-    def __init__(self, controls: list[KeyControl]):
-        self.controls = controls
-
-    def print_all(self):
-        # result = ""
-        # curr_width = 0
-        # curr_col = 0
-        # for control in self.controls:
-        #     new_width = curr_width + control.get_plain_width()
-        #     if curr_col != 0:
-        #         new_width += 3
-        #     if new_width > console_width:
-        #         if curr_col == 0:
-        #             result += truncate(control.get_formatted(), console_width) + "\n"
-        #             continue
-        #         curr_col = 0
-        #         result += "\n"
-        #         new_width -= curr_width
-        #     if curr_col != 0:
-        #         result += " | "
-        #     result += control.get_formatted()
-        #     curr_width = new_width
-        #     curr_col += 1
-        # console.print(result)
-        for control in self.controls:
-            console.print(control.get_formatted())
+from mupl.util import get_name_and_extension, find_all_files, format_duration
 
 
 class PlaylistInfo:
@@ -150,7 +114,6 @@ def show_playlist_creation_menu(plman: PlaylistManager):
     playing_file = -1
     page = 0
     sink: AudioSink | None = None
-    PAGE_SIZE = 10
 
     def _filter_audio_files(path: Path) -> bool:
         name, ext = get_name_and_extension(path.name)
@@ -169,9 +132,9 @@ def show_playlist_creation_menu(plman: PlaylistManager):
 
     run = True
     controls = KeyControls([
-        KeyControl("Space", "Add/Remove"),
-        KeyControl("Up/Down", "Change Selection"),
-        KeyControl("Left/Right", "-/+ Page"),
+        KeyControl(" ", "Add/Remove", readchar.key.SPACE),
+        KeyControl(":up_arrow:/:down_arrow:", "Change Selection"),
+        KeyControl(":left_arrow:/:right_arrow:", "-/+ Page"),
         KeyControl("a", "Select All"),
         KeyControl("A", "Unselect All"),
         KeyControl("s", "Search Directory"),
@@ -186,40 +149,47 @@ def show_playlist_creation_menu(plman: PlaylistManager):
     ])
     show_controls = False
     while run:
-        console.width = shutil.get_terminal_size().columns
+        page_size = console.height - 12
         console.clear()
         console.print(f"[bold]~~~ Editing Playlist [/bold][red]{title}[/red][bold] ~~~[/bold]", justify="center")
-        if show_controls:
-            controls.print_all()
-        else:
-            controls2.print_all()
         console.print()
         if prompt_change_dir:
             prompt_change_dir = False
-            new_current_dir = Path(console.input("Search in Directory > "))
-            if not new_current_dir.exists():
-                console.print("[red]Directory does not exist[/red]")
-                console.input("Continue>")
-            elif not new_current_dir.is_dir():
-                console.print("[red]Not a directory[/red]")
-                console.input("Continue>")
-            else:
-                current_dir = new_current_dir
-                refresh_files()
-                if sink is not None:
-                    sink.stop()
-                    sink = None
-                selected_file = 0
-                playing_file = -1
-                page = 0
+            console.show_cursor(True)
+            new_current_dir_str = Prompt.ask("Search in Directory")
+            if new_current_dir_str != "":
+                new_current_dir = Path(new_current_dir_str)
+                console.show_cursor(False)
+                if not new_current_dir.exists():
+                    console.print(Control.move_to(0, console.height // 2 - 1),
+                                  "[r]Directory does not exist.\n\nPress any key to continue.[/r]", end="",
+                                  justify="center")
+                    readchar.readkey()
+                elif not new_current_dir.is_dir():
+                    console.print(Control.move_to(0, console.height // 2 - 1),
+                                  "[r]Not a directory.\n\nPress any key to continue.[/r]", end="", justify="center")
+                    readchar.readkey()
+                else:
+                    current_dir = new_current_dir
+                    refresh_files()
+                    if sink is not None:
+                        sink.stop()
+                        sink = None
+                    selected_file = 0
+                    playing_file = -1
+                    page = 0
         elif prompt_rename:
             prompt_rename = False
-            new_title = console.input("New Playlist Name > ")
+            console.show_cursor(True)
+            new_title = Prompt.ask("New Playlist Name")
+            console.show_cursor(False)
             if plman.is_title_available(new_title):
                 title = new_title
             else:
-                console.print("[red]That name is already taken by another playlist![/red]")
-                console.input("Continue>")
+                console.print(Control.move_to(0, console.height // 2 - 1),
+                              "[r]That name is already taken by another playlist.\n\nPress any key to continue.[/r]",
+                              end="", justify="center")
+                readchar.readkey()
         else:
             if current_dir is None:
                 console.print("[italic]No search directory specified[/italic]")
@@ -229,8 +199,8 @@ def show_playlist_creation_menu(plman: PlaylistManager):
                     console.print("[italic]No music files found.[/italic]")
                 else:
                     console.print(
-                        f"Viewing page [blue bold]{page + 1}[/blue bold]/[blue bold]{ceil(len(files) / PAGE_SIZE)}[/blue bold]")
-                    for i in range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE):
+                        f"Viewing page [blue bold]{page + 1}[/blue bold]/[blue bold]{ceil(len(files) / page_size)}[/blue bold]")
+                    for i in range(page * page_size, (page + 1) * page_size):
                         if i < len(files):
                             row = "\\["
                             if files[i][0] in songs:
@@ -238,15 +208,24 @@ def show_playlist_creation_menu(plman: PlaylistManager):
                             else:
                                 row += " ] "
                             if i == playing_file:
-                                row += "[yellow]"
+                                style = "yellow on "
+                            elif i == selected_file:
+                                style = "black on "
+                            else:
+                                style = "default on"
                             if i == selected_file:
-                                row += "[reverse]"
-                            row += rich.markup.escape(str(files[i][1].artist)) + " - " + rich.markup.escape(
-                                str(files[i][1].title))
-                            if i == selected_file:
-                                row += "[/reverse]"
-                            if i == playing_file:
-                                row += "[/yellow]"
+                                style += "white"
+                            else:
+                                style += "default"
+                            row += f"[{style}]"
+                            if files[i][1].albumartist is not None and files[i][1].albumartist not in files[i][
+                                1].artist:
+                                row += rich.markup.escape(str(files[i][1].artist)) + " (" + rich.markup.escape(
+                                    str(files[i][1].albumartist)) + ")"
+                            else:
+                                row += rich.markup.escape(str(files[i][1].artist))
+                            row += " - " + rich.markup.escape(str(files[i][1].title))
+                            row += f"[/{style}]"
                             console.print(row, no_wrap=True, overflow="ellipsis")
                     console.print()
                     if selected_file < len(files):
@@ -259,6 +238,10 @@ def show_playlist_creation_menu(plman: PlaylistManager):
                             f"[blue]Duration[/blue]: {format_duration(int(selected[1].duration)).ljust(5)} [blue]Track No.[/blue]: {str(selected[1].track).ljust(5)} [blue]Year[/blue]: {selected[1].year}")
                         console.print(
                             f"[blue]File[/blue]: {rich.markup.escape(str(selected[0].relative_to(current_dir)))}")
+            if show_controls:
+                console.print(controls, end="")
+            else:
+                console.print(controls2, end="")
             k = readkey()
             if k == "c":
                 show_controls = not show_controls
@@ -271,24 +254,24 @@ def show_playlist_creation_menu(plman: PlaylistManager):
                 selected_file -= 1
                 if selected_file < 0:
                     selected_file = 0
-                page = selected_file // PAGE_SIZE
+                page = selected_file // page_size
             elif k == readchar.key.DOWN:
                 selected_file += 1
                 if selected_file >= len(files):
                     selected_file = len(files) - 1
-                page = selected_file // PAGE_SIZE
+                page = selected_file // page_size
             elif k == readchar.key.LEFT:
                 page = max(page - 1, 0)
-                selected_file = page * PAGE_SIZE
+                selected_file = page * page_size
             elif k == readchar.key.RIGHT:
-                page = min(page + 1, ceil(len(files) / PAGE_SIZE))
-                selected_file = page * PAGE_SIZE
+                page = min(page + 1, ceil(len(files) / page_size))
+                selected_file = page * page_size
             elif k == readchar.key.PAGE_UP:
                 page = 0
                 selected_file = 0
             elif k == readchar.key.PAGE_DOWN:
-                page = ceil(len(files) / PAGE_SIZE) - 1
-                selected_file = page * PAGE_SIZE
+                page = ceil(len(files) / page_size) - 1
+                selected_file = page * page_size
             elif k == "a":
                 for file in files:
                     if file[0] not in songs:
