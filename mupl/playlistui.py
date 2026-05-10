@@ -1,8 +1,6 @@
-import json
-from glob import glob
 from math import ceil
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID
 
 import readchar
 import rich.markup
@@ -17,76 +15,43 @@ from tinytag import TinyTag
 from mupl.console import console
 from mupl.logger import logger
 from mupl.menu import KeyControls, KeyControl
-from mupl.playlist import Playlist, load_playlist_from_dict, ActivePlaylist
+from mupl.playlist import Playlist, ActivePlaylist, Playlists
+from mupl.song import SongDatabase
 from mupl.util import get_name_and_extension, find_all_files, format_duration
 
 
-class PlaylistInfo:
-    def __init__(self, file: Path, playlist: Playlist):
-        self.file = file
-        self.playlist = playlist
-
-
 class PlaylistManager:
-    def __init__(self, root_dir: Path):
-        self.playlist_directory = Path(root_dir, "playlists")
-        self.playlists: dict[str, PlaylistInfo] = {}
+    def __init__(self, db: SongDatabase, playlists: Playlists):
+        self.songdb = db
+        self.playlists: Playlists = playlists
         self.active_playlist: ActivePlaylist | None = None
 
-    def is_title_available(self, title: str) -> bool:
-        for plinfo in self.playlists.values():
-            if plinfo.playlist.title.lower() == title.lower():
-                return False
-        return True
-
-    def save(self):
-        for plinfo in self.playlists.values():
-            with open(plinfo.file, "w", encoding="utf-8") as fp:
-                json.dump(plinfo.playlist.to_json(), fp, indent=4)
-                logger.info(f"Saved playlist {plinfo.playlist.title} to {plinfo.file}")
-
-    def create_new_playlist(self, title: str) -> Playlist:
-        playlist = Playlist(str(uuid4()), title, [])
-        self.playlists[playlist.id] = PlaylistInfo(Path(self.playlist_directory, playlist.id + ".json"), playlist)
-        return playlist
-
-    def set_active_playlist(self, playlist: str | Playlist) -> ActivePlaylist | None:
-        if type(playlist) == str:
+    def set_active_playlist(self, db: SongDatabase, playlist: UUID | Playlist) -> ActivePlaylist | None:
+        if type(playlist) is UUID:
             if playlist in self.playlists:
-                playlist = self.playlists[playlist].playlist
+                playlist = self.playlists.get_playlist(db, playlist)
             else:
                 return None
         self.active_playlist = ActivePlaylist(playlist)
         return self.active_playlist
 
-    def load(self) -> list[tuple[Path, Exception]]:
-        self.playlists.clear()
-        failed_loads: list[tuple[Path, Exception]] = []
-        for file in glob(str(Path(self.playlist_directory, "*.json"))):
-            try:
-                with open(file, "r", encoding="utf-8") as fp:
-                    playlist = load_playlist_from_dict(json.load(fp))
-                    self.playlists[playlist.id] = PlaylistInfo(Path(file), playlist)
-            except Exception as e:
-                failed_loads.append((Path(file), e))
-        return failed_loads
-
 
 def show_playlist_selection_menu(plman: PlaylistManager):
     run = True
     playlist_page = 0
+
     while run:
         console.clear()
         console.print("[bold]~~~ Select a Playlist ~~~[/bold]")
         console.print(
             "[green bold][Right][/green bold] +Page | [green bold][Left][/green bold] -Page | [green bold][N][/green bold] New Playlist | [green bold][X][/green bold] Exit")
         console.print()
-        if len(plman.playlists) == 0:
+        if plman.playlists.is_empty():
             console.print("[italic]No playlists found. Try creating one![/italic]")
         else:
             console.print(f"Page {playlist_page + 1} of {len(plman.playlists)}")
-            for i, plinfo in enumerate(plman.playlists):
-                console.print(f"[blue bold]{i + 1}[/blue bold] {plinfo.title}")
+            for i, playlist_id in enumerate(plman.playlists):
+                console.print(f"[blue bold]{i + 1}[/blue bold] {plman.playlists[playlist_id].name}")
             console.print("")
         k = readkey()
         if k == readchar.key.LEFT:
@@ -102,7 +67,7 @@ def show_playlist_selection_menu(plman: PlaylistManager):
 def show_playlist_creation_menu(plman: PlaylistManager):
     title = "New Playlist"
     title_suffix = 1
-    while not plman.is_title_available(title):
+    while not plman.playlists.is_name_available(title):
         title_suffix += 1
         title = f"New Playlist {title_suffix}"
     songs: dict[Path, TinyTag] = {}
@@ -181,10 +146,10 @@ def show_playlist_creation_menu(plman: PlaylistManager):
         elif prompt_rename:
             prompt_rename = False
             console.show_cursor(True)
-            new_title = Prompt.ask("New Playlist Name")
+            new_name = Prompt.ask("New Playlist Name")
             console.show_cursor(False)
-            if plman.is_title_available(new_title):
-                title = new_title
+            if plman.playlists.is_name_available(new_name):
+                title = new_name
             else:
                 console.print(Control.move_to(0, console.height // 2 - 1),
                               "[r]That name is already taken by another playlist.\n\nPress any key to continue.[/r]",
@@ -283,13 +248,14 @@ def show_playlist_creation_menu(plman: PlaylistManager):
             elif k == "s":
                 prompt_change_dir = True
             elif k == "r":
-                refresh_files()
-                if sink is not None:
-                    sink.stop()
-                    sink = None
-                selected_file = 0
-                playing_file = -1
-                page = 0
+                if current_dir is not None:
+                    refresh_files()
+                    if sink is not None:
+                        sink.stop()
+                        sink = None
+                    selected_file = 0
+                    playing_file = -1
+                    page = 0
             elif k == "n":
                 prompt_rename = True
             elif k == readchar.key.ENTER:
@@ -304,6 +270,12 @@ def show_playlist_creation_menu(plman: PlaylistManager):
                     sink = AudioSink()
                     sink.load_audio(str(files[playing_file][0]))
                     sink.play()
+            elif k == "S":
+                playlist = plman.playlists.create_playlist(title)
+                playlist.files.extend(songs.keys())
+                plman.playlists.sync(plman.songdb, playlist)
+                plman.songdb.save()
+                plman.playlists.save()
             elif k == "x":
                 run = False
     if sink is not None:
@@ -311,4 +283,8 @@ def show_playlist_creation_menu(plman: PlaylistManager):
 
 
 if __name__ == "__main__":
-    show_playlist_selection_menu(PlaylistManager(Path(".")))
+    songdb = SongDatabase(Path("songs.json"))
+    songdb.load()
+    playlists = Playlists(Path("playlists.json"))
+    playlists.load()
+    show_playlist_selection_menu(PlaylistManager(songdb, playlists))

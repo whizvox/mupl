@@ -1,19 +1,136 @@
+import json
 import random
+from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4, UUID
+
+from mupl.logger import logger
+from mupl.song import SongDatabase
 
 
+@dataclass
 class Playlist:
-    def __init__(self, playlist_id: str, title: str, files: list[Path]):
-        self.id = playlist_id
-        self.title = title
-        self.files = files
+    id: UUID
+    name: str
+    files: list[Path]
 
-    def to_json(self) -> dict:
+    def sync(self, db: SongDatabase):
+        for file in self.files:
+            db.add_song(file)
+
+    def to_json(self, db: SongDatabase):
+        files: list[int] = []
+        for file in self.files:
+            index = db.get_song_index(file)
+            if index is None:
+                logger.warning(f"Skipping file unknown to song database: {file}")
+            else:
+                files.append(index)
         return {
             "id": self.id,
-            "title": self.title,
+            "name": self.name,
+            "files": files
+        }
+
+
+@dataclass
+class BasicPlaylist:
+    id: UUID
+    name: str
+    files: list[int]
+
+    def to_json(self):
+        return {
+            "id": str(self.id),
+            "name": self.name,
             "files": self.files
         }
+
+
+class Playlists:
+    _file_path: Path
+    _playlists: dict[UUID, BasicPlaylist]
+
+    def __init__(self, dir_path: Path):
+        self._file_path = dir_path
+        self._playlists = {}
+
+    def __contains__(self, item):
+        return item in self._playlists
+
+    def __len__(self):
+        return len(self._playlists)
+
+    def __iter__(self):
+        yield from self._playlists
+
+    def __getitem__(self, item: UUID) -> BasicPlaylist:
+        return self._playlists[item]
+
+    def items(self):
+        return self._playlists.items()
+
+    def to_json(self):
+        return {
+            "playlists": list(map(lambda x: x.to_json(), self._playlists.values()))
+        }
+
+    def is_empty(self):
+        return len(self._playlists) == 0
+
+    def is_name_available(self, name: str):
+        for playlist in self._playlists.values():
+            if playlist.name == name:
+                return False
+        return True
+
+    def get_playlist(self, db: SongDatabase, playlist_id: UUID) -> Playlist | None:
+        if playlist_id in self._playlists:
+            info = self._playlists[playlist_id]
+            files: list[Path] = []
+            for file_id in info.files:
+                path = db.get_song_path(file_id)
+                if path is None:
+                    logger.warning(f"Could not find song path with ID of {file_id}")
+                else:
+                    files.append(path)
+            return Playlist(playlist_id, info.name, files)
+        return None
+
+    def create_playlist(self, name: str) -> Playlist | None:
+        if self.is_name_available(name):
+            info = BasicPlaylist(uuid4(), name, [])
+            self._playlists[info.id] = info
+            playlist = Playlist(info.id, info.name, [])
+            return playlist
+        return None
+
+    def sync(self, db: SongDatabase, playlist: Playlist):
+        if playlist.id in self._playlists:
+            info = self._playlists[playlist.id]
+            info.name = playlist.name
+            info.files.clear()
+            playlist.sync(db)
+            for file in playlist.files:
+                index = db.get_song_index(file)
+                if index is not None:
+                    info.files.append(index)
+                else:
+                    raise IndexError(f"Could not find song file index for {file}")
+
+    def save(self):
+        logger.info(f"Saving playlist information to {self._file_path}")
+        with open(self._file_path, "w+", encoding="utf-8") as fp:
+            json.dump(self.to_json(), fp)
+
+    def load(self):
+        logger.info(f"Loading playlist information from {self._file_path}")
+        with open(self._file_path, "r", encoding="utf-8") as fp:
+            self._playlists.clear()
+            obj = json.load(fp)
+            for playlist_obj in obj["playlists"]:
+                playlist = load_basic_playlist_from_dict(playlist_obj)
+                self._playlists[playlist.id] = playlist
 
 
 class ActivePlaylist:
@@ -46,5 +163,8 @@ class ActivePlaylist:
         return False
 
 
-def load_playlist_from_dict(obj: dict) -> Playlist:
-    return Playlist(obj["id"], obj["title"], obj["files"])
+def load_basic_playlist_from_dict(obj: dict) -> BasicPlaylist:
+    return BasicPlaylist(UUID(obj["id"]), obj["name"], obj["files"])
+
+# def load_playlist_from_dict(obj: dict) -> Playlist:
+#     return Playlist(obj["id"], obj["title"], list(map(lambda x: Path(x), obj["files"])))
