@@ -1,13 +1,14 @@
 from typing import Callable
 
 import wcwidth
-from rich.console import Console, ConsoleOptions, RenderResult, Group
+from rich.console import Console, ConsoleOptions, RenderResult
 from rich.control import Control
 from rich.text import Text
 
 
 class KeyControl:
-    def __init__(self, key_name: str, description: str, key: str | None=None, action: Callable[[], None] | None=None):
+    def __init__(self, key_name: str, description: str, key: str | None = None,
+                 action: Callable[[], None] | None = None):
         self.key_name = key_name
         self.description = description
         self.key = key

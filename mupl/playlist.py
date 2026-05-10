@@ -5,31 +5,20 @@ from pathlib import Path
 from uuid import uuid4, UUID
 
 from mupl.logger import logger
-from mupl.song import SongDatabase
+from mupl.song import SongDatabase, SongData
 
 
 @dataclass
 class Playlist:
     id: UUID
     name: str
-    files: list[Path]
+    songs: list[SongData]
 
-    def sync(self, db: SongDatabase):
-        for file in self.files:
-            db.add_song(file)
-
-    def to_json(self, db: SongDatabase):
-        files: list[int] = []
-        for file in self.files:
-            index = db.get_song_index(file)
-            if index is None:
-                logger.warning(f"Skipping file unknown to song database: {file}")
-            else:
-                files.append(index)
+    def to_json(self):
         return {
             "id": self.id,
             "name": self.name,
-            "files": files
+            "files": list(map(lambda x: str(x.id), self.songs))
         }
 
 
@@ -87,14 +76,14 @@ class Playlists:
     def get_playlist(self, db: SongDatabase, playlist_id: UUID) -> Playlist | None:
         if playlist_id in self._playlists:
             info = self._playlists[playlist_id]
-            files: list[Path] = []
+            songs: list[SongData] = []
             for file_id in info.files:
-                path = db.get_song_path(file_id)
-                if path is None:
-                    logger.warning(f"Could not find song path with ID of {file_id}")
+                data = db.get_song_data(file_id)
+                if data is None:
+                    logger.warning(f"Could not find song data with ID of {file_id}")
                 else:
-                    files.append(path)
-            return Playlist(playlist_id, info.name, files)
+                    songs.append(data)
+            return Playlist(playlist_id, info.name, songs)
         return None
 
     def create_playlist(self, name: str) -> Playlist | None:
@@ -105,18 +94,13 @@ class Playlists:
             return playlist
         return None
 
-    def sync(self, db: SongDatabase, playlist: Playlist):
+    def sync(self, playlist: Playlist):
         if playlist.id in self._playlists:
             info = self._playlists[playlist.id]
             info.name = playlist.name
             info.files.clear()
-            playlist.sync(db)
-            for file in playlist.files:
-                index = db.get_song_index(file)
-                if index is not None:
-                    info.files.append(index)
-                else:
-                    raise IndexError(f"Could not find song file index for {file}")
+            for data in playlist.songs:
+                info.files.append(data.id)
 
     def save(self):
         logger.info(f"Saving playlist information to {self._file_path}")
@@ -148,8 +132,8 @@ class ActivePlaylist:
     def has_next(self) -> bool:
         return len(self.remaining_songs) > 0
 
-    def get_current_song_file(self) -> Path:
-        return self.playlist.files[self.current_song_index]
+    def get_current_song(self) -> SongData:
+        return self.playlist.songs[self.current_song_index]
 
     def reload(self):
         self.remaining_songs.clear()

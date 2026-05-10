@@ -3,6 +3,7 @@ import glob
 import json
 import pathlib
 import random
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Thread
 from time import sleep
@@ -12,8 +13,16 @@ from readchar import readkey
 from rpaudio import AudioSink
 from tinytag import TinyTag
 
-from console import console
+from mupl.console import console
+from mupl.playlist import Playlists
+from mupl.song import SongDatabase
 from mupl.util import get_name_and_extension
+
+
+@dataclass
+class MuplContext:
+    songdb: SongDatabase
+    playlists: Playlists
 
 
 class Arguments:
