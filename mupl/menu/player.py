@@ -27,7 +27,7 @@ class PlayerMenu:
         self.paused = False
         self._position = 0
         self.controls = KeyControls([
-            KeyControl(":left_arrow:/:right_arrow:", "Skip 5 Seconds"),
+            # KeyControl(":left_arrow:/:right_arrow:", "Skip 5 Seconds"),
             KeyControl(":down_arrow:/:up_arrow:", "Change Volume"),
             KeyControl("s", "Skip to Next Song"),
             KeyControl("p", "Pause"),
@@ -56,8 +56,7 @@ class PlayerMenu:
         random.shuffle(self.remaining_songs)
 
     def toggle_paused(self):
-        if self.is_playing():
-            self.paused = not self.paused
+        self.paused = not self.paused
 
     def stop_current_song(self):
         if self.is_playing():
@@ -83,14 +82,14 @@ class PlayerMenu:
                 self._position = self.sink.get_pos()
             if prev_paused != self.paused:
                 prev_paused = self.paused
-                if self.is_playing():
+                if self.sink is not None:
                     if self.paused:
                         self.sink.pause()
                     else:
                         self.sink.play()
             if prev_volume != self.volume:
                 prev_volume = self.volume
-                if self.is_playing():
+                if self.sink is not None:
                     self.sink.set_volume(self.volume / 100)
             if not self.is_playing() and not self.paused:
                 self._play_next_song()
@@ -116,9 +115,10 @@ class PlayerMenu:
             total_time = meta.duration
             curr_time = self._position
             time_right = f"{format_duration(int(curr_time))}/{format_duration(int(total_time))}"
-            bar_width = options.max_width - wcwidth.width(time_right) - 1
-            bar_fill = int((curr_time / total_time) * bar_width)
-            yield _console.render_str(f"\n[yellow]{"━" * bar_fill}[/yellow]{"━" * (bar_width - bar_fill)} {time_right}")
+            bar_width = options.max_width - wcwidth.width(time_right) - 3
+            bar_fill = min(int((curr_time / total_time) * bar_width) + 1, bar_width)
+            yield _console.render_str(
+                f"\n{':pause_button:' if self.paused else ':play_button:'} [yellow]{"━" * bar_fill}[/yellow]{"━" * (bar_width - bar_fill)} {time_right}")
         else:
             yield _console.render_str("[i]Waiting...[/i]")
         yield self.controls if self.show_controls else self.no_controls
@@ -131,7 +131,7 @@ def show_player_menu(playlist: Playlist):
         run = True
         menu.reload()
         menu.shuffle()
-        playback_thread = Thread(target=menu.playback_loop)
+        playback_thread = Thread(target=menu.playback_loop, name="PlaybackLoopThread")
         playback_thread.start()
         while run:
             ch = readchar.readkey()
@@ -149,15 +149,18 @@ def show_player_menu(playlist: Playlist):
             elif ch == readchar.key.PAGE_DOWN:
                 if menu.sink is not None:
                     menu.volume = 5
-            elif ch == readchar.key.LEFT:
-                if menu.sink is not None:
-                    menu.sink.try_seek(max(menu.sink.get_pos() - 5, 0))
-            elif ch == readchar.key.RIGHT:
-                if menu.sink is not None:
-                    menu.sink.try_seek(min(menu.sink.get_pos() + 5, menu.current_song.meta.duration))
+            elif ch == "p":
+                menu.toggle_paused()
+            # elif ch == readchar.key.LEFT:
+            #     if menu.sink is not None:
+            #         menu.sink.try_seek(max(menu.sink.get_pos() - 5, 0))
+            # elif ch == readchar.key.RIGHT:
+            #     if menu.sink is not None:
+            #         menu.sink.try_seek(min(menu.sink.get_pos() + 5, menu.current_song.meta.duration))
             elif ch == "c":
                 menu.show_controls = not menu.show_controls
             elif ch == "x":
+                menu.shutdown = True
                 run = False
         menu.shutdown = True
         playback_thread.join()
