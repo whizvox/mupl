@@ -1,5 +1,4 @@
 import json
-import random
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4, UUID
@@ -118,36 +117,6 @@ class Playlists:
                     self._playlists[playlist.id] = playlist
         else:
             self.save()
-
-
-class ActivePlaylist:
-    def __init__(self, playlist: Playlist):
-        self.playlist = playlist
-        self.remaining_songs: list[int] = []
-        self.current_song_index = -1
-
-    def is_playing(self) -> bool:
-        return self.current_song_index != -1
-
-    def has_next(self) -> bool:
-        return len(self.remaining_songs) > 0
-
-    def get_current_song(self) -> SongData:
-        return self.playlist.songs[self.current_song_index]
-
-    def reload(self):
-        self.remaining_songs.clear()
-        for i in range(len(self.playlist.songs)):
-            self.remaining_songs.append(i)
-
-    def shuffle(self):
-        random.shuffle(self.remaining_songs)
-
-    def next(self) -> bool:
-        if self.has_next():
-            self.current_song_index = self.remaining_songs.pop()
-            return True
-        return False
 
 
 def load_basic_playlist_from_dict(obj: dict) -> BasicPlaylist:
