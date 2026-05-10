@@ -14,6 +14,7 @@ from tinytag import TinyTag
 
 from mupl.console import console
 from mupl.logger import logger, enable_file_logging
+from mupl.menu.player import show_player_menu
 from mupl.mupl import MuplContext
 from mupl.playlist import Playlists, Playlist, BasicPlaylist
 from mupl.song import SongDatabase, SongMetadata, create_metadata_from_tag
@@ -86,6 +87,9 @@ def show_playlist_selection_menu(mupl: MuplContext):
             show_playlist_edit_menu(mupl)
         elif k == "c":
             show_controls = not show_controls
+        elif k == readchar.key.ENTER:
+            playlist = mupl.playlists.get_playlist(mupl.songdb, playlists[selected].id)
+            show_player_menu(playlist)
         elif k == "x":
             run = False
 

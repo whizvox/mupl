@@ -137,7 +137,7 @@ class ActivePlaylist:
 
     def reload(self):
         self.remaining_songs.clear()
-        for i in range(len(self.remaining_songs)):
+        for i in range(len(self.playlist.songs)):
             self.remaining_songs.append(i)
 
     def shuffle(self):

@@ -18,7 +18,13 @@ systems.
 
 ## Images
 
-![Screenshot showcasing playlist editor menu](./images/playlist_editor.png)
+| ![Screenshot showcasing player menu](./images/player.png) |
+|:---------------------------------------------------------:|
+|                     The music player                      |
+
+| ![Screenshot showcasing playlist editor menu](./images/playlist_editor.png) |
+|:---------------------------------------------------------------------------:|
+|                             The playlist editor                             |
 
 ## License
 
