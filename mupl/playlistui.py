@@ -7,13 +7,14 @@ import rich.markup
 import tinytag
 from readchar import readkey
 from rich.control import Control
+from rich.panel import Panel
 from rich.progress import track
 from rich.prompt import Prompt
 from rpaudio.rpaudio import AudioSink
 from tinytag import TinyTag
 
 from mupl.console import console
-from mupl.logger import logger
+from mupl.logger import logger, enable_file_logging
 from mupl.menu import KeyControls, KeyControl
 from mupl.playlist import Playlist, ActivePlaylist, Playlists
 from mupl.song import SongDatabase
@@ -99,13 +100,14 @@ def show_playlist_creation_menu(plman: PlaylistManager):
     controls = KeyControls([
         KeyControl(" ", "Add/Remove", readchar.key.SPACE),
         KeyControl(":up_arrow:/:down_arrow:", "Change Selection"),
-        KeyControl(":left_arrow:/:right_arrow:", "-/+ Page"),
+        KeyControl(":left_arrow:/:right_arrow:", "Change Page"),
         KeyControl("a", "Select All"),
         KeyControl("A", "Unselect All"),
         KeyControl("s", "Search Directory"),
         KeyControl("r", "Refresh Files"),
-        KeyControl("n", "Rename Playlist"),
+        KeyControl("n", "Rename"),
         KeyControl("Enter", "Play Track"),
+        KeyControl("S", "Save"),
         KeyControl("x", "Exit"),
         KeyControl("c", "Hide Controls"),
     ])
@@ -276,6 +278,9 @@ def show_playlist_creation_menu(plman: PlaylistManager):
                 plman.playlists.sync(plman.songdb, playlist)
                 plman.songdb.save()
                 plman.playlists.save()
+                panel = Panel("Successfully saved playlist.\n\nPress any key to continue.", padding=1)
+                console.print(Control.move_to(0, console.height // 2 - 4), panel, end="", justify="center")
+                readchar.readkey()
             elif k == "x":
                 run = False
     if sink is not None:
@@ -283,6 +288,7 @@ def show_playlist_creation_menu(plman: PlaylistManager):
 
 
 if __name__ == "__main__":
+    enable_file_logging()
     songdb = SongDatabase(Path("songs.json"))
     songdb.load()
     playlists = Playlists(Path("playlists.json"))

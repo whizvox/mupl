@@ -4,3 +4,8 @@
 
 # Python virtual environment
 /.venv
+
+# mupl files
+songs.json
+playlists.json
+log.txt

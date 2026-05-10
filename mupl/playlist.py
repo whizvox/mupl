@@ -125,12 +125,15 @@ class Playlists:
 
     def load(self):
         logger.info(f"Loading playlist information from {self._file_path}")
-        with open(self._file_path, "r", encoding="utf-8") as fp:
-            self._playlists.clear()
-            obj = json.load(fp)
-            for playlist_obj in obj["playlists"]:
-                playlist = load_basic_playlist_from_dict(playlist_obj)
-                self._playlists[playlist.id] = playlist
+        if self._file_path.exists():
+            with open(self._file_path, "r", encoding="utf-8") as fp:
+                self._playlists.clear()
+                obj = json.load(fp)
+                for playlist_obj in obj["playlists"]:
+                    playlist = load_basic_playlist_from_dict(playlist_obj)
+                    self._playlists[playlist.id] = playlist
+        else:
+            self.save()
 
 
 class ActivePlaylist:
@@ -165,6 +168,3 @@ class ActivePlaylist:
 
 def load_basic_playlist_from_dict(obj: dict) -> BasicPlaylist:
     return BasicPlaylist(UUID(obj["id"]), obj["name"], obj["files"])
-
-# def load_playlist_from_dict(obj: dict) -> Playlist:
-#     return Playlist(obj["id"], obj["title"], list(map(lambda x: Path(x), obj["files"])))
