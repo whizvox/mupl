@@ -31,6 +31,11 @@ def get_name_and_extension(name: str) -> tuple[str, str]:
     return name[0:index], name[index + 1:]
 
 
+def filter_audio_files(path: Path) -> bool:
+    name, ext = get_name_and_extension(path.name)
+    return ext in ("mp3", "flac", "ogg", "wav")
+
+
 def truncate(s: str, max_width: int) -> str:
     if len(s) > max_width:
         return s[:max_width - 1] + "…"

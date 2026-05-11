@@ -5,20 +5,26 @@ from threading import Thread
 import readchar
 import wcwidth
 from rich.console import Console, ConsoleOptions
-from rich.control import Control
-from rich.live import Live
 from rpaudio import AudioSink
 
-from mupl.console import console
+import mupl.menu.selectplaylist
 from mupl.logger import logger
 from mupl.playlist import Playlist
 from mupl.song import SongData
-from mupl.ui import KeyControls, KeyControl
+from mupl.ui import KeyControls, KeyControl, Menu, MenuManager
 from mupl.util import format_duration
 
 
-class PlayerMenu:
-    def __init__(self, playlist: Playlist):
+class PlayerMenu(Menu):
+    def __init__(self, manager: MenuManager, playlist: Playlist):
+        super().__init__(manager, f"Playing from [red]{playlist.name}[/red]", KeyControls([
+            # KeyControl(":left_arrow:/:right_arrow:", "Skip 5 Seconds"),
+            KeyControl(":down_arrow:/:up_arrow:", "Change Volume"),
+            KeyControl("s", "Skip to Next Song"),
+            KeyControl("p", "Pause"),
+            KeyControl("x", "Exit"),
+            KeyControl("c", "Hide Controls")
+        ]))
         self.playlist = playlist
         self.sink: AudioSink | None = None
         self.current_song: SongData | None = None
@@ -26,19 +32,9 @@ class PlayerMenu:
         self.volume = 100
         self.paused = False
         self._position = 0
-        self.controls = KeyControls([
-            # KeyControl(":left_arrow:/:right_arrow:", "Skip 5 Seconds"),
-            KeyControl(":down_arrow:/:up_arrow:", "Change Volume"),
-            KeyControl("s", "Skip to Next Song"),
-            KeyControl("p", "Pause"),
-            KeyControl("x", "Exit"),
-            KeyControl("c", "Hide Controls")
-        ])
-        self.no_controls = KeyControls([
-            KeyControl("c", "Show Controls")
-        ])
-        self.show_controls = False
         self.shutdown = False
+        self.playback_thread = Thread(target=self.playback_loop, name="PlaybackLoopThread")
+        self.playback_thread.start()
 
     def is_playing(self):
         return self.sink is not None and self.sink.is_playing
@@ -97,11 +93,38 @@ class PlayerMenu:
         self.stop_current_song()
         logger.info("Playback loop finished")
 
-    def __rich_console__(self, _console: Console, options: ConsoleOptions):
-        yield Control.clear()
-        yield Control.move_to(0, 0)
-        yield Control.show_cursor(False)
-        yield _console.render_str(
+    def handle_key(self, ch: str):
+        ch = readchar.readkey()
+        if ch == "s":
+            self.stop_current_song()
+        elif ch == readchar.key.UP:
+            if self.sink is not None:
+                self.volume = min(self.volume + 5, 100)
+        elif ch == readchar.key.DOWN:
+            if self.sink is not None:
+                self.volume = max(self.volume - 5, 0)
+        elif ch == readchar.key.PAGE_UP:
+            if self.sink is not None:
+                self.volume = 100
+        elif ch == readchar.key.PAGE_DOWN:
+            if self.sink is not None:
+                self.volume = 5
+        elif ch == "p":
+            self.toggle_paused()
+        # elif ch == readchar.key.LEFT:
+        #     if self.sink is not None:
+        #         self.sink.try_seek(max(self.sink.get_pos() - 5, 0))
+        # elif ch == readchar.key.RIGHT:
+        #     if self.sink is not None:
+        #         self.sink.try_seek(min(self.sink.get_pos() + 5, self.current_song.meta.duration))
+        elif ch == "x":
+            self.manager.queue_next_menu(lambda: mupl.menu.selectplaylist.PlaylistSelectionMenu(self.manager))
+
+    def on_destroy(self):
+        self.playback_thread.join()
+
+    def render(self, console: Console, options: ConsoleOptions):
+        yield console.render_str(
             f"[blue][bold]~~~ Listening to [/bold][red]{self.playlist.name}[/red][bold] ~~~[/blue][/bold]\n",
             justify="center")
         if self.current_song is not None:
@@ -109,58 +132,15 @@ class PlayerMenu:
             artist = meta.artist
             if meta.albumartist is not None and meta.albumartist not in artist:
                 artist += f" ({meta.albumartist})"
-            yield _console.render_str(f"  Title: {meta.title}")
-            yield _console.render_str(f" Artist: {artist}")
-            yield _console.render_str(f"  Album: {meta.album}")
+            yield console.render_str(f"  Title: {meta.title}")
+            yield console.render_str(f" Artist: {artist}")
+            yield console.render_str(f"  Album: {meta.album}")
             total_time = meta.duration
             curr_time = self._position
             time_right = f"{format_duration(int(curr_time))}/{format_duration(int(total_time))}"
             bar_width = options.max_width - wcwidth.width(time_right) - 3
             bar_fill = min(int((curr_time / total_time) * bar_width) + 1, bar_width)
-            yield _console.render_str(
+            yield console.render_str(
                 f"\n{':pause_button:' if self.paused else ':play_button:'} [yellow]{"━" * bar_fill}[/yellow]{"━" * (bar_width - bar_fill)} {time_right}")
         else:
-            yield _console.render_str("[i]Waiting...[/i]")
-        yield self.controls if self.show_controls else self.no_controls
-
-
-def show_player_menu(playlist: Playlist):
-    menu = PlayerMenu(playlist)
-
-    with Live(menu, refresh_per_second=10, console=console):
-        run = True
-        menu.reload()
-        menu.shuffle()
-        playback_thread = Thread(target=menu.playback_loop, name="PlaybackLoopThread")
-        playback_thread.start()
-        while run:
-            ch = readchar.readkey()
-            if ch == "s":
-                menu.stop_current_song()
-            elif ch == readchar.key.UP:
-                if menu.sink is not None:
-                    menu.volume = min(menu.volume + 5, 100)
-            elif ch == readchar.key.DOWN:
-                if menu.sink is not None:
-                    menu.volume = max(menu.volume - 5, 0)
-            elif ch == readchar.key.PAGE_UP:
-                if menu.sink is not None:
-                    menu.volume = 100
-            elif ch == readchar.key.PAGE_DOWN:
-                if menu.sink is not None:
-                    menu.volume = 5
-            elif ch == "p":
-                menu.toggle_paused()
-            # elif ch == readchar.key.LEFT:
-            #     if menu.sink is not None:
-            #         menu.sink.try_seek(max(menu.sink.get_pos() - 5, 0))
-            # elif ch == readchar.key.RIGHT:
-            #     if menu.sink is not None:
-            #         menu.sink.try_seek(min(menu.sink.get_pos() + 5, menu.current_song.meta.duration))
-            elif ch == "c":
-                menu.show_controls = not menu.show_controls
-            elif ch == "x":
-                menu.shutdown = True
-                run = False
-        menu.shutdown = True
-        playback_thread.join()
+            yield console.render_str("[i]Waiting...[/i]")
