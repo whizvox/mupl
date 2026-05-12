@@ -30,7 +30,7 @@ class PlayerMenu(Menu):
         self.sink: AudioSink | None = None
         self.current_song: SongData | None = None
         self.remaining_songs: list[int] = []
-        self.volume = 100
+        self.volume = manager.mupl.config.volume
         self.paused = False
         self._position = 0
         self.shutdown = False
@@ -114,15 +114,23 @@ class PlayerMenu(Menu):
         elif ch == readchar.key.UP:
             if self.sink is not None:
                 self.volume = min(self.volume + 5, 100)
+                self.manager.mupl.config.volume = self.volume
+                self.manager.mupl.config.save()
         elif ch == readchar.key.DOWN:
             if self.sink is not None:
                 self.volume = max(self.volume - 5, 0)
+                self.manager.mupl.config.volume = self.volume
+                self.manager.mupl.config.save()
         elif ch == readchar.key.PAGE_UP:
             if self.sink is not None:
                 self.volume = 100
+                self.manager.mupl.config.volume = self.volume
+                self.manager.mupl.config.save()
         elif ch == readchar.key.PAGE_DOWN:
             if self.sink is not None:
                 self.volume = 5
+                self.manager.mupl.config.volume = self.volume
+                self.manager.mupl.config.save()
         elif ch == "p":
             self.toggle_paused()
         # elif ch == readchar.key.LEFT:
@@ -148,12 +156,13 @@ class PlayerMenu(Menu):
             yield console.render_str(f"  Title: {meta.title}")
             yield console.render_str(f" Artist: {meta.get_comp_artist()}")
             yield console.render_str(f"  Album: {meta.album}")
+            yield console.render_str(f"\nVolume: {self.volume}% ")
             total_time = meta.duration
             curr_time = self._position
             time_right = f"{format_duration(int(curr_time))}/{format_duration(int(total_time))}"
             bar_width = options.max_width - wcwidth.width(time_right) - 3
             bar_fill = min(int((curr_time / total_time) * bar_width) + 1, bar_width)
             yield console.render_str(
-                f"\n{':pause_button:' if self.paused else ':play_button:'} [yellow]{"━" * bar_fill}[/yellow]{"━" * (bar_width - bar_fill)} {time_right}")
+                f"{':pause_button:' if self.paused else ':play_button:'} [yellow]{"━" * bar_fill}[/yellow]{"━" * (bar_width - bar_fill)} {time_right}")
         else:
             yield console.render_str("[i]Waiting...[/i]")

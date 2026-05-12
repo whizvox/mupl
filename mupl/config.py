@@ -6,6 +6,7 @@ _CONFIG_VERSION = 1
 
 class Configuration:
     _path: Path
+    volume: int = 100
     output_to_file: bool = False
     output_file: str = "song.txt"
     output_file_format: str = "{compartist} - {title}"
@@ -17,6 +18,7 @@ class Configuration:
     def to_json(self):
         return {
             "__config_version__": _CONFIG_VERSION,
+            "volume": self.volume,
             "output_to_file": self.output_to_file,
             "output_file": self.output_file,
             "output_file_format": self.output_file_format,
@@ -28,6 +30,7 @@ class Configuration:
             with open(self._path, "r", encoding="utf-8") as fp:
                 obj = json.load(fp)
                 self.output_to_file = obj["output_to_file"]
+                self.volume = obj["volume"]
                 self.output_file = obj["output_file"]
                 self.output_file_format = obj["output_file_format"]
                 self.last_search_dir = obj["last_search_dir"]
