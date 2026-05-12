@@ -1,11 +1,11 @@
 from math import ceil
 from pathlib import Path
+from threading import Thread
 
 import readchar
 import rich.markup
 import tinytag
 from rich.console import Console, ConsoleOptions, RenderResult
-from rich.progress import track
 from rich.text import Text
 from rpaudio.rpaudio import AudioSink
 from tinytag import TinyTag
@@ -13,6 +13,7 @@ from tinytag import TinyTag
 import mupl.menu.selectplaylist
 from mupl.logger import logger
 from mupl.playlist import Playlist
+from mupl.progressbar import ProgressBar
 from mupl.song import SongMetadata, create_metadata_from_tag
 from mupl.ui import KeyControls, KeyControl, Menu, MenuManager, create_input_prompt, create_alert_prompt
 from mupl.util import find_all_files, format_duration, filter_audio_files
@@ -57,22 +58,41 @@ class PlaylistEditorMenu(Menu):
         self.page = 0
         self.sink: AudioSink | None = None
         self.page_size = 10
+        self.progress = ProgressBar()
+        self.progress_thread: Thread | None = None
+        self.show_progress = False
         if self.current_dir is not None:
             self.refresh_files()
 
     def get_max_pages(self):
         return ceil(len(self.files) / self.page_size)
 
-    def refresh_files(self):
+    def _refresh_files(self):
+        logger.info(f"Refreshing files from {self.current_dir}...")
         self.files.clear()
+        self.progress.reset()
+        self.progress.set_task(f"Searching {self.current_dir}")
+        self.show_progress = True
         all_files = find_all_files(self.current_dir, file_filter=filter_audio_files)
-        for path in track(all_files, "Searching files..."):
+        self.progress.total = len(all_files)
+        for path in all_files:
+            if self.progress.is_cancelled():
+                break
+            self.progress.increase_progress()
+            self.progress.set_task(f"Reading {path.relative_to(self.current_dir)}")
             try:
                 tag = TinyTag.get(path)
                 self.files.append((path, create_metadata_from_tag(tag)))
             except tinytag.ParseError as e:
                 logger.warning(f"Could not parse metadata from {path}:")
                 logger.warning(e)
+        self.show_progress = False
+        self.progress.reset()
+        self.progress_thread = None
+
+    def refresh_files(self):
+        self.progress_thread = Thread(target=self._refresh_files, name="RefreshFiles")
+        self.progress_thread.start()
 
     def change_selection(self, amount: int):
         self.selected_file += amount
@@ -190,7 +210,15 @@ class PlaylistEditorMenu(Menu):
             self.mupl.playlists.save()
             self.queue_prompt(create_alert_prompt("Successfully saved playlist.", "Info"))
         elif ch == "x":
-            self.manager.queue_next_menu(lambda: mupl.menu.selectplaylist.PlaylistSelectionMenu(self.manager))
+            if self.show_progress:
+                logger.info("Stopping refresh files thread")
+                self.progress.cancel()
+                if self.progress_thread is not None:
+                    self.progress_thread.join()
+                self.show_progress = False
+                logger.info("Refresh files thread stopped")
+            else:
+                self.manager.queue_next_menu(lambda: mupl.menu.selectplaylist.PlaylistSelectionMenu(self.manager))
 
     def render(self, console: Console, options: ConsoleOptions) -> RenderResult:
         self.page_size = console.height - 12
@@ -199,6 +227,9 @@ class PlaylistEditorMenu(Menu):
         yield Text()
         if self.current_dir is None:
             yield console.render_str("[i]No search directory specified[/i]")
+        elif self.show_progress:
+            yield self.progress
+            yield console.render_str(f"\n[i]Press [/i][green bold]\\[x][/green bold][i] to cancel.[/i]")
         else:
             yield console.render_str(f"Listing music files in [blue]{self.current_dir}[/blue]")
             if len(self.files) == 0:

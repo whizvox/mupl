@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 
 import readchar
 import wcwidth
@@ -60,29 +60,25 @@ class KeyControls:
 class Prompt:
     title: str | None
     message: str
-    action: Callable[[str | None], None] | None
+    action: Callable[[Any], None] | None
     reading_input: bool
     options: list[str] | None
     _buffer: str = ""
     _selected: int = 0
 
-    def update_buffer(self, ch: str) -> bool:
+    def update_buffer(self, ch: str) -> tuple[bool, str | None]:
         if ch.isprintable():
             self._buffer += ch
         elif ch == readchar.key.BACKSPACE:
             if len(self._buffer) > 0:
                 self._buffer = self._buffer[:-2]
         elif ch == readchar.key.ENTER:
-            if self.action is not None:
-                self.action(self._buffer)
-            return True
+            return True, self._buffer
         elif ch == readchar.key.ESC:
-            if self.action is not None:
-                self.action(None)
-            return True
-        return False
+            return True, None
+        return False, None
 
-    def update_selection(self, ch: str) -> bool:
+    def update_selection(self, ch: str) -> tuple[bool, int]:
         if ch == readchar.key.LEFT:
             if self._selected <= 0:
                 self._selected = len(self.options) - 1
@@ -94,14 +90,10 @@ class Prompt:
             else:
                 self._selected += 1
         elif ch == readchar.key.ENTER:
-            if self.action is not None:
-                self.action(self.options[self._selected])
-            return True
+            return True, self._selected
         elif ch == readchar.key.ESC:
-            if self.action is not None:
-                self.action(None)
-            return True
-        return False
+            return True, -1
+        return False, -1
 
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         yield Control.move_to(0, options.max_height // 2 - (3 if self.reading_input else 4))
@@ -123,7 +115,7 @@ class Prompt:
         yield Panel(txt, title=self.title, title_align="center", padding=1, expand=False)
 
 
-def create_input_prompt(message: str, action: Callable[[str], None], title: str = "Input"):
+def create_input_prompt(message: str, action: Callable[[str | None], None], title: str = "Input"):
     return Prompt(title, message, action, True, None)
 
 
@@ -134,19 +126,17 @@ def create_alert_prompt(message: str, title: str = "Alert"):
 def create_selection_prompt(message: str, options: list[str], action: Callable[[int], None], can_cancel=True,
                             title="Select"):
     _options = options.copy()
+    _action = action
     if can_cancel:
         _options.insert(0, "Cancel")
 
-    def _action(result: str):
-        if result is None:
-            action(-1)
-        else:
-            for i, option in enumerate(_options):
-                if result == option:
-                    action(i - (1 if can_cancel else 0))
-                    return
-            action(-1)
+        def __action(option: int):
+            if option == -1:
+                action(-1)
+            else:
+                action(option - 1)
 
+        _action = __action
     return Prompt(title, message, _action, False, _options)
 
 
@@ -244,11 +234,17 @@ class MenuManager:
                 if prompt is not None:
                     ch = readchar.readkey()
                     if prompt.reading_input:
-                        if prompt.update_buffer(ch):
+                        done, res = prompt.update_buffer(ch)
+                        if done:
                             self._menu.remove_prompt()
+                            if prompt.action is not None:
+                                prompt.action(res)
                     elif prompt.options is not None:
-                        if prompt.update_selection(ch):
+                        done, res = prompt.update_selection(ch)
+                        if done:
                             self._menu.remove_prompt()
+                            if prompt.action is not None:
+                                prompt.action(res)
                     else:
                         self._menu.remove_prompt()
                 else:
