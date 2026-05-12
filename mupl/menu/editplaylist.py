@@ -48,6 +48,8 @@ class PlaylistEditorMenu(Menu):
         self._update_title()
         self.files: list[tuple[Path, SongMetadata]] = []
         self.current_dir: Path | None = None
+        if manager.mupl.config.last_search_dir != "":
+            self.current_dir = Path(manager.mupl.config.last_search_dir)
         self.prompt_change_dir = False
         self.prompt_rename = False
         self.selected_file = 0
@@ -55,6 +57,8 @@ class PlaylistEditorMenu(Menu):
         self.page = 0
         self.sink: AudioSink | None = None
         self.page_size = 10
+        if self.current_dir is not None:
+            self.refresh_files()
 
     def get_max_pages(self):
         return ceil(len(self.files) / self.page_size)
@@ -105,6 +109,8 @@ class PlaylistEditorMenu(Menu):
                     self.sink.stop()
                     self.sink = None
                 self.current_dir = path
+                self.manager.mupl.config.last_search_dir = str(self.current_dir)
+                self.manager.mupl.config.save()
                 self.refresh_files()
                 self.selected_file = 0
                 self.playing_file = -1
