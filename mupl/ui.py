@@ -9,7 +9,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
-from mupl.mupl import MuplContext
+from mupl.context import MuplContext
 
 
 class KeyControl:
@@ -62,17 +62,40 @@ class Prompt:
     message: str
     action: Callable[[str | None], None] | None
     reading_input: bool
-    buffer: str = ""
+    options: list[str] | None
+    _buffer: str = ""
+    _selected: int = 0
 
     def update_buffer(self, ch: str) -> bool:
         if ch.isprintable():
-            self.buffer += ch
+            self._buffer += ch
         elif ch == readchar.key.BACKSPACE:
-            if len(self.buffer) > 0:
-                self.buffer = self.buffer[:-2]
+            if len(self._buffer) > 0:
+                self._buffer = self._buffer[:-2]
         elif ch == readchar.key.ENTER:
             if self.action is not None:
-                self.action(self.buffer)
+                self.action(self._buffer)
+            return True
+        elif ch == readchar.key.ESC:
+            if self.action is not None:
+                self.action(None)
+            return True
+        return False
+
+    def update_selection(self, ch: str) -> bool:
+        if ch == readchar.key.LEFT:
+            if self._selected <= 0:
+                self._selected = len(self.options) - 1
+            else:
+                self._selected -= 1
+        elif ch == readchar.key.RIGHT:
+            if self._selected >= len(self.options) - 1:
+                self._selected = 0
+            else:
+                self._selected += 1
+        elif ch == readchar.key.ENTER:
+            if self.action is not None:
+                self.action(self.options[self._selected])
             return True
         elif ch == readchar.key.ESC:
             if self.action is not None:
@@ -83,18 +106,48 @@ class Prompt:
     def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         yield Control.move_to(0, options.max_height // 2 - (3 if self.reading_input else 4))
         if self.reading_input:
-            txt = console.render_str(f"{self.message}\n?> {self.buffer}[r] [/r]")
+            txt = console.render_str(f"{self.message}\n?> {self._buffer}[r] [/r]")
+        elif self.options is not None:
+            txt = console.render_str(f"{self.message}\n")
+            optionstxt = ""
+            for i, option in enumerate(self.options):
+                if i > 0:
+                    optionstxt += " "
+                if i == self._selected:
+                    optionstxt += f"[r]\\[{option}][/r]"
+                else:
+                    optionstxt += f"\\[{option}]"
+            txt.append(console.render_str(optionstxt))
         else:
             txt = console.render_str(f"{self.message}\n\n[i]Press any key to continue[/i]")
         yield Panel(txt, title=self.title, title_align="center", padding=1, expand=False)
 
 
 def create_input_prompt(message: str, action: Callable[[str], None], title: str = "Input"):
-    return Prompt(title, message, action, True)
+    return Prompt(title, message, action, True, None)
 
 
 def create_alert_prompt(message: str, title: str = "Alert"):
-    return Prompt(title, message, None, False)
+    return Prompt(title, message, None, False, None)
+
+
+def create_selection_prompt(message: str, options: list[str], action: Callable[[int], None], can_cancel=True,
+                            title="Select"):
+    _options = options.copy()
+    if can_cancel:
+        _options.insert(0, "Cancel")
+
+    def _action(result: str):
+        if result is None:
+            action(-1)
+        else:
+            for i, option in enumerate(_options):
+                if result == option:
+                    action(i - (1 if can_cancel else 0))
+                    return
+            action(-1)
+
+    return Prompt(title, message, _action, False, _options)
 
 
 class Menu:
@@ -182,13 +235,19 @@ class MenuManager:
             self._next_menu = menu
 
     def run(self):
+        if self._menu is None:
+            raise RuntimeError("Attempted to run menu manager without setting a menu first")
         mupl_console = Console(highlight=False)
         with Live(self._menu, console=mupl_console, vertical_overflow="visible") as live:
             while not self._shutdown:
-                if self._menu.prompt is not None:
+                prompt = self._menu.prompt
+                if prompt is not None:
                     ch = readchar.readkey()
-                    if self._menu.prompt.reading_input:
-                        if self._menu.prompt.update_buffer(ch):
+                    if prompt.reading_input:
+                        if prompt.update_buffer(ch):
+                            self._menu.remove_prompt()
+                    elif prompt.options is not None:
+                        if prompt.update_selection(ch):
                             self._menu.remove_prompt()
                     else:
                         self._menu.remove_prompt()

@@ -6,6 +6,7 @@ from rich.text import Text
 
 import mupl.menu.editplaylist
 import mupl.menu.player
+import mupl.menu.settings
 from mupl.playlist import BasicPlaylist, Playlist
 from mupl.ui import KeyControls, KeyControl, Menu, MenuManager
 
@@ -16,8 +17,7 @@ class PlaylistSelectionMenu(Menu):
             KeyControl(":up_arrow:/:down_arrow:", "Change Selection"),
             KeyControl("e", "Edit"),
             KeyControl("n", "Create New"),
-            KeyControl("x", "Exit"),
-            KeyControl("c", "Hide Controls")
+            KeyControl("s", "Open Settings Menu")
         ]))
         self.selected = 0
         self.page = 0
@@ -40,6 +40,8 @@ class PlaylistSelectionMenu(Menu):
         elif ch == readchar.key.ENTER:
             playlist = self._get_selected_playlist()
             self.manager.queue_next_menu(lambda: mupl.menu.player.PlayerMenu(self.manager, playlist))
+        elif ch == "s":
+            self.manager.queue_next_menu(lambda: mupl.menu.settings.SettingsMenu(self.manager))
         elif ch == "x":
             self.manager.shutdown()
 
