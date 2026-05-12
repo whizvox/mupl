@@ -70,6 +70,19 @@ class PlayerMenu(Menu):
             self.sink = AudioSink().load_audio(str(self.current_song.path))
             self.sink.set_volume(self.volume / 100)
             self.sink.play()
+            if self.manager.mupl.config.output_to_file:
+                try:
+                    with open(self.manager.mupl.config.output_file, "w+", encoding="utf-8") as fp:
+                        fp.write(self.manager.mupl.config.output_file_format.format(
+                            title=self.current_song.meta.title,
+                            album=self.current_song.meta.album,
+                            albumartist=self.current_song.meta.albumartist,
+                            compartist=self.current_song.meta.get_comp_artist(),
+                            track=self.current_song.meta.track,
+                            year=self.current_song.meta.year
+                        ))
+                except IOError as e:
+                    logger.error(f"Could not write to output file at {self.manager.mupl.config.output_file}:\n{e}")
 
     def playback_loop(self):
         logger.info("Starting playback loop")
@@ -132,11 +145,8 @@ class PlayerMenu(Menu):
         yield Text()
         if self.current_song is not None:
             meta = self.current_song.meta
-            artist = meta.artist
-            if meta.albumartist is not None and meta.albumartist not in artist:
-                artist += f" ({meta.albumartist})"
             yield console.render_str(f"  Title: {meta.title}")
-            yield console.render_str(f" Artist: {artist}")
+            yield console.render_str(f" Artist: {meta.get_comp_artist()}")
             yield console.render_str(f"  Album: {meta.album}")
             total_time = meta.duration
             curr_time = self._position

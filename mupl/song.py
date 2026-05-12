@@ -18,6 +18,13 @@ class SongMetadata:
     track: int | None
     duration: float | None
 
+    def get_comp_artist(self) -> str | None:
+        if self.artist is None:
+            return None
+        if self.albumartist is not None and self.albumartist not in self.artist:
+            return f"{self.artist} ({self.albumartist})"
+        return self.artist
+
     def to_json(self):
         return {
             "title": self.title,
