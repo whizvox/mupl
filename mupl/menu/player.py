@@ -5,6 +5,7 @@ from threading import Thread
 import readchar
 import wcwidth
 from rich.console import Console, ConsoleOptions
+from rich.text import Text
 from rpaudio import AudioSink
 
 import mupl.menu.selectplaylist
@@ -35,6 +36,7 @@ class PlayerMenu(Menu):
         self.shutdown = False
         self.playback_thread = Thread(target=self.playback_loop, name="PlaybackLoopThread")
         self.playback_thread.start()
+        self.reload()
 
     def is_playing(self):
         return self.sink is not None and self.sink.is_playing
@@ -64,7 +66,7 @@ class PlayerMenu(Menu):
         self.stop_current_song()
         self.paused = False
         if not self.shutdown and len(self.remaining_songs) > 0:
-            self.current_song = self.playlist.songs[self.remaining_songs.pop()]
+            self.current_song = self.playlist.songs[self.remaining_songs.pop(0)]
             self.sink = AudioSink().load_audio(str(self.current_song.path))
             self.sink.set_volume(self.volume / 100)
             self.sink.play()
@@ -94,7 +96,6 @@ class PlayerMenu(Menu):
         logger.info("Playback loop finished")
 
     def handle_key(self, ch: str):
-        ch = readchar.readkey()
         if ch == "s":
             self.stop_current_song()
         elif ch == readchar.key.UP:
@@ -118,15 +119,17 @@ class PlayerMenu(Menu):
         #     if self.sink is not None:
         #         self.sink.try_seek(min(self.sink.get_pos() + 5, self.current_song.meta.duration))
         elif ch == "x":
+            self.shutdown = True
+            self.stop_current_song()
             self.manager.queue_next_menu(lambda: mupl.menu.selectplaylist.PlaylistSelectionMenu(self.manager))
 
     def on_destroy(self):
+        self.shutdown = True
+        self.stop_current_song()
         self.playback_thread.join()
 
     def render(self, console: Console, options: ConsoleOptions):
-        yield console.render_str(
-            f"[blue][bold]~~~ Listening to [/bold][red]{self.playlist.name}[/red][bold] ~~~[/blue][/bold]\n",
-            justify="center")
+        yield Text()
         if self.current_song is not None:
             meta = self.current_song.meta
             artist = meta.artist
