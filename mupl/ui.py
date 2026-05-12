@@ -9,7 +9,7 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.text import Text
 
-from mupl.muplold import MuplContext
+from mupl.mupl import MuplContext
 
 
 class KeyControl:

@@ -14,7 +14,7 @@ systems.
     * Run `python -m venv .venv`
     * Any commands that start with `python` or `pip` should instead start with `.venv/bin/python` or `.venv/bin/pip`.
 5. Run `pip install -r requirements.txt`.
-6. Run `python -m mupl.muplui`.
+6. Run `python -m mupl.mupl`.
 
 ## Images
 
