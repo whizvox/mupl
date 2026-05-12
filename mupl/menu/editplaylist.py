@@ -25,8 +25,8 @@ class PlaylistEditorMenu(Menu):
             KeyControl(" ", "Add/Remove", readchar.key.SPACE),
             KeyControl(":up_arrow:/:down_arrow:", "Change Selection"),
             KeyControl(":left_arrow:/:right_arrow:", "Change Page"),
-            KeyControl("a", "Select All"),
-            KeyControl("A", "Unselect All"),
+            KeyControl("a", "(Un)select Page"),
+            KeyControl("A", "(Un)select All"),
             KeyControl("s", "Search Directory"),
             KeyControl("r", "Refresh Files"),
             KeyControl("n", "Rename"),
@@ -66,6 +66,10 @@ class PlaylistEditorMenu(Menu):
 
     def get_max_pages(self):
         return ceil(len(self.files) / self.page_size)
+
+    def get_page_range(self) -> tuple[int, int]:
+        first = self.page * self.page_size
+        return first, min(first + self.page_size, len(self.files))
 
     def _refresh_files(self):
         logger.info(f"Refreshing files from {self.current_dir}...")
@@ -168,13 +172,27 @@ class PlaylistEditorMenu(Menu):
         elif ch == readchar.key.PAGE_DOWN:
             self.change_page(100)
         elif ch == "a":
-            for data in self.files:
-                if data[0] not in self.songs:
-                    self.songs[data[0]] = data[1]
+            select_all = False
+            page_range = self.get_page_range()
+            for i in range(*page_range):
+                if self.files[i][0] not in self.songs:
+                    select_all = True
+                    break
+            if select_all:
+                for i in range(*page_range):
+                    if self.files[i][0] not in self.songs:
+                        self.songs[self.files[i][0]] = self.files[i][1]
+            else:
+                for i in range(*page_range):
+                    if self.files[i][0] in self.songs:
+                        self.songs.pop(self.files[i][0])
         elif ch == "A":
-            for data in self.files:
-                if data[0] in self.songs:
-                    self.songs.pop(data[0])
+            select_all = len(self.songs) != len(self.files)
+            self.songs.clear()
+            if select_all:
+                for file in self.files:
+                    self.songs[file[0]] = file[1]
+
         elif ch == "s":
             self.queue_prompt(create_input_prompt("Set Search Directory to:", self._on_search_dir_set))
         elif ch == "r":
@@ -203,8 +221,8 @@ class PlaylistEditorMenu(Menu):
         elif ch == "S":
             self.playlist.songs.clear()
             for path in self.songs:
-                data = self.mupl.songdb.add_song(path, self.songs[path])
-                self.playlist.songs.append(data)
+                file = self.mupl.songdb.add_song(path, self.songs[path])
+                self.playlist.songs.append(file)
             self.mupl.playlists.sync(self.playlist)
             self.mupl.songdb.save()
             self.mupl.playlists.save()
@@ -221,7 +239,7 @@ class PlaylistEditorMenu(Menu):
                 self.manager.queue_next_menu(lambda: mupl.menu.selectplaylist.PlaylistSelectionMenu(self.manager))
 
     def render(self, console: Console, options: ConsoleOptions) -> RenderResult:
-        self.page_size = console.height - 12
+        self.page_size = console.height - 13
         if self.page_size < 1:
             self.page_size = 1
         yield Text()
@@ -232,12 +250,13 @@ class PlaylistEditorMenu(Menu):
             yield console.render_str(f"\n[i]Press [/i][green bold]\\[x][/green bold][i] to cancel.[/i]")
         else:
             yield console.render_str(f"Listing music files in [blue]{self.current_dir}[/blue]")
+            yield console.render_str(f"Playlist size: [blue bold]{len(self.songs)}[/blue bold]")
             if len(self.files) == 0:
                 yield console.render_str("[italic]No music files found.[/italic]")
             else:
                 yield console.render_str(
                     f"Viewing page [blue bold]{self.page + 1}[/blue bold]/[blue bold]{self.get_max_pages()}[/blue bold]")
-                for i in range(self.page * self.page_size, (self.page + 1) * self.page_size):
+                for i in range(*self.get_page_range()):
                     if i < len(self.files):
                         song = self.files[i]
                         row = "\\["
