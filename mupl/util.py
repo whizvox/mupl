@@ -1,5 +1,6 @@
+import random
 from pathlib import Path
-from typing import Callable
+from typing import Callable, MutableSequence, Any
 
 
 def _find_all_files(directory: Path, max_depth: int, file_filter: Callable[[Path], bool], current_depth: int,
@@ -44,3 +45,17 @@ def truncate(s: str, max_width: int) -> str:
 
 def format_duration(seconds: int) -> str:
     return f"{seconds // 60}:{seconds % 60:02}"
+
+
+def shuffle_slice(seq: MutableSequence[Any], start: int = 0, end: int = -1):
+    """
+    Shuffle a portion of a sequence.
+    :param seq: The sequence to shuffle
+    :param start: The starting index (inclusive), defaults to 0
+    :param end: The ending index (exclusive), defaults to the length of the sequence
+    """
+    if end < 0:
+        end = len(seq)
+    for i in range(start, end - 1):
+        idx = random.randrange(i, end)
+        seq[idx], seq[i] = seq[i], seq[idx]

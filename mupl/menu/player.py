@@ -13,26 +13,31 @@ from mupl.logger import logger
 from mupl.playlist import Playlist
 from mupl.song import SongData
 from mupl.ui import KeyControls, KeyControl, Menu, MenuManager
-from mupl.util import format_duration
+from mupl.util import format_duration, shuffle_slice
 
 
 class PlayerMenu(Menu):
     def __init__(self, manager: MenuManager, playlist: Playlist):
         super().__init__(manager, f"Playing from [red]{playlist.name}[/red]", KeyControls([
             # KeyControl(":left_arrow:/:right_arrow:", "Skip 5 Seconds"),
-            KeyControl(":down_arrow:/:up_arrow:", "Change Volume"),
-            KeyControl("s", "Skip to Next Song"),
-            KeyControl("p", "Pause"),
+            KeyControl("-/+", "Change Volume"),
+            KeyControl("s", "Shuffle"),
+            KeyControl("Space", "Pause"),
+            KeyControl(":down_arrow:/:up_arrow:", "Change Selection"),
+            KeyControl("Enter", "Skip"),
             KeyControl("x", "Exit"),
             KeyControl("c", "Hide Controls")
         ]))
         self.playlist = playlist
         self.sink: AudioSink | None = None
         self.current_song: SongData | None = None
-        self.remaining_songs: list[int] = []
+        self.songs: list[int] = []
+        self.song_index = -1
         self.volume = manager.mupl.config.volume
         self.paused = False
         self._position = 0
+        self.selected = 0
+        self.page_size = 10
         self.shutdown = False
         self.playback_thread = Thread(target=self.playback_loop, name="PlaybackLoopThread")
         self.playback_thread.start()
@@ -41,17 +46,23 @@ class PlayerMenu(Menu):
     def is_playing(self):
         return self.sink is not None and self.sink.is_playing
 
+    def get_song_display_range(self) -> tuple[int, int]:
+        return self.selected, min(self.selected + self.page_size, len(self.songs) - 1)
+
     def reload(self):
         self.paused = False
         if self.is_playing():
             self.sink.stop()
             self.sink = None
-        self.remaining_songs.clear()
+        self.songs.clear()
         for i in range(len(self.playlist.songs)):
-            self.remaining_songs.append(i)
+            self.songs.append(i)
 
     def shuffle(self):
-        random.shuffle(self.remaining_songs)
+        if self.is_playing() or self.paused:
+            shuffle_slice(self.songs, start=self.song_index + 1)
+        else:
+            random.shuffle(self.songs)
 
     def toggle_paused(self):
         self.paused = not self.paused
@@ -65,8 +76,11 @@ class PlayerMenu(Menu):
     def _play_next_song(self):
         self.stop_current_song()
         self.paused = False
-        if not self.shutdown and len(self.remaining_songs) > 0:
-            self.current_song = self.playlist.songs[self.remaining_songs.pop(0)]
+        if not self.shutdown and self.song_index < len(self.songs) - 1:
+            self.song_index += 1
+            if self.selected == self.song_index:
+                self.selected += 1
+            self.current_song = self.playlist.songs[self.songs[self.song_index]]
             self.sink = AudioSink().load_audio(str(self.current_song.path))
             self.sink.set_volume(self.volume / 100)
             self.sink.play()
@@ -110,17 +124,26 @@ class PlayerMenu(Menu):
 
     def handle_key(self, ch: str):
         if ch == "s":
+            self.shuffle()
+        elif ch == readchar.key.ENTER:
+            self.song_index = self.selected - 1
             self.stop_current_song()
-        elif ch == readchar.key.UP:
+        elif ch == "=" or ch == "+":
             if self.sink is not None:
                 self.volume = min(self.volume + 5, 100)
                 self.manager.mupl.config.volume = self.volume
                 self.manager.mupl.config.save()
-        elif ch == readchar.key.DOWN:
+        elif ch == "-":
             if self.sink is not None:
                 self.volume = max(self.volume - 5, 0)
                 self.manager.mupl.config.volume = self.volume
                 self.manager.mupl.config.save()
+        elif ch == readchar.key.UP:
+            self.selected = max(self.selected - 1, 0)
+        elif ch == readchar.key.DOWN:
+            self.selected = min(self.selected + 1, len(self.songs) - 1)
+        elif ch == readchar.key.SPACE:
+            self.toggle_paused()
         elif ch == readchar.key.PAGE_UP:
             if self.sink is not None:
                 self.volume = 100
@@ -150,13 +173,21 @@ class PlayerMenu(Menu):
         self.playback_thread.join()
 
     def render(self, console: Console, options: ConsoleOptions):
+        self.page_size = options.max_height - 12
         yield Text()
         if self.current_song is not None:
             meta = self.current_song.meta
-            yield console.render_str(f"  Title: {meta.title}")
-            yield console.render_str(f" Artist: {meta.get_comp_artist()}")
-            yield console.render_str(f"  Album: {meta.album}")
-            yield console.render_str(f"\nVolume: {self.volume}% ")
+            titletxt = console.render_str(f"  [blue bold]Title[/blue bold]: {meta.title}", overflow="ellipsis")
+            titletxt.no_wrap = True
+            yield titletxt
+            artisttxt = console.render_str(f" [blue bold]Artist[/blue bold]: {meta.get_comp_artist()}",
+                                           overflow="ellipsis")
+            artisttxt.no_wrap = True
+            yield artisttxt
+            albumtxt = console.render_str(f"  [blue bold]Album[/blue bold]: {meta.album}", overflow="ellipsis")
+            albumtxt.no_wrap = True
+            yield albumtxt
+            yield console.render_str(f"\n[yellow]Volume[/yellow]: {self.volume}% ")
             total_time = meta.duration
             curr_time = self._position
             time_right = f"{format_duration(int(curr_time))}/{format_duration(int(total_time))}"
@@ -164,5 +195,17 @@ class PlayerMenu(Menu):
             bar_fill = min(int((curr_time / total_time) * bar_width) + 1, bar_width)
             yield console.render_str(
                 f"{':pause_button:' if self.paused else ':play_button:'} [yellow]{"━" * bar_fill}[/yellow]{"━" * (bar_width - bar_fill)} {time_right}")
+            yield console.render_str("\n[u]Upcoming:[/u]")
+            for i in range(*self.get_song_display_range()):
+                song = self.playlist.songs[self.songs[i]]
+                line = str(i - self.song_index) + ". "
+                if i == self.selected:
+                    line += f"[r]"
+                line += f"{song.meta.get_comp_artist()} - {song.meta.title}"
+                if i == self.selected:
+                    line += "[/r]"
+                txt = console.render_str(line, overflow="ellipsis")
+                txt.no_wrap = True
+                yield txt
         else:
             yield console.render_str("[i]Waiting...[/i]")
