@@ -66,12 +66,31 @@ class PlayerMenu(Menu):
 
     def toggle_paused(self):
         self.paused = not self.paused
+        self._update_output_file()
 
     def stop_current_song(self):
         if self.is_playing():
             self.sink.stop()
             self.sink = None
             self._position = 0
+
+    def _update_output_file(self):
+        if self.manager.mupl.config.output_to_file:
+            try:
+                with open(self.manager.mupl.config.output_file, "w+", encoding="utf-8") as fp:
+                    if self.paused:
+                        fp.write("")
+                    else:
+                        fp.write(self.manager.mupl.config.output_file_format.format(
+                            title=self.current_song.meta.title,
+                            album=self.current_song.meta.album,
+                            albumartist=self.current_song.meta.albumartist,
+                            compartist=self.current_song.meta.get_comp_artist(),
+                            track=self.current_song.meta.track,
+                            year=self.current_song.meta.year
+                        ))
+            except IOError as e:
+                logger.error(f"Could not write to output file at {self.manager.mupl.config.output_file}:\n{e}")
 
     def _play_next_song(self):
         self.stop_current_song()
@@ -84,19 +103,7 @@ class PlayerMenu(Menu):
             self.sink = AudioSink().load_audio(str(self.current_song.path))
             self.sink.set_volume(self.volume / 100)
             self.sink.play()
-            if self.manager.mupl.config.output_to_file:
-                try:
-                    with open(self.manager.mupl.config.output_file, "w+", encoding="utf-8") as fp:
-                        fp.write(self.manager.mupl.config.output_file_format.format(
-                            title=self.current_song.meta.title,
-                            album=self.current_song.meta.album,
-                            albumartist=self.current_song.meta.albumartist,
-                            compartist=self.current_song.meta.get_comp_artist(),
-                            track=self.current_song.meta.track,
-                            year=self.current_song.meta.year
-                        ))
-                except IOError as e:
-                    logger.error(f"Could not write to output file at {self.manager.mupl.config.output_file}:\n{e}")
+            self._update_output_file()
 
     def playback_loop(self):
         logger.info("Starting playback loop")
